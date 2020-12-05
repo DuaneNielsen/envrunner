@@ -3,6 +3,7 @@ import numpy as np
 import gym.spaces as spaces
 from collections import deque
 import gym.wrappers
+import cv2
 
 
 class AtariAriVector(gym.Wrapper):
@@ -357,3 +358,54 @@ class ClipState2D(gym.ObservationWrapper):
 
     def observation(self, observation):
         return observation[self.y:self.y+self.h, self.x:self.x+self.w]
+
+
+class ApplyFunc(gym.ObservationWrapper):
+    def __init__(self, env, func, output_observation_space):
+        """
+        Apply the given function to the observation and return the output
+        :param env: environment
+        :param func: function(observation) -> output
+        :param output_observation_space: description of the output space, eg:
+            new_space = gym.spaces.Box(
+                low=0,
+                high=255,
+                shape=(self.h, self.w, num_colors),
+                dtype=np.uint8,
+            )
+        """
+        super().__init__(env)
+        self.func = func
+        self.observation_space = output_observation_space
+
+    def observation(self, observation):
+        return self.func(observation)
+
+
+class Resize2D(gym.ObservationWrapper):
+    """
+    Apply the given function to the observation and return the output
+    :param env: environment
+    :param output_observation_space: gym.spaces.Box object
+        new_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.h, self.w, num_colors),
+            dtype=np.uint8,
+        )
+    """
+
+    def __init__(self, env, h, w, interpolation=cv2.INTER_LINEAR):
+        super().__init__(env)
+        num_colors = env.observation_space.shape[2]
+        new_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(h, w, num_colors),
+            dtype=np.uint8,
+        )
+        self.observation_space = new_space
+        self.interpolation = interpolation
+
+    def observation(self, observation):
+        return cv2.resize(observation, dsize=self.observation_space.shape[0:2], interpolation=self.interpolation)
