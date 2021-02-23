@@ -35,8 +35,8 @@ class DummyEnv:
 
 
 def transition_equal(t1, t2):
-    s1, a1, sp_1, r1, d1, i1 = t1
-    s2, a2, sp_2, r2, d2, i2 = t2
+    s1, a1, sp_1, r1, d1 = t1
+    s2, a2, sp_2, r2, d2 = t2
     assert (s1 == s2) and (sp_1 == sp_2)
     assert (a1.action == a2.action)
     assert (r1 == r2)
@@ -68,15 +68,15 @@ def test_buffer():
     assert len(buffer.transitions) == 3
 
     transition = buffer.get_transition(0)
-    expected = 0, run.Action(action=0), 1, 0.0, False, {}
+    expected = 0, run.Action(action=0), 1, 0.0, False
     transition_equal(transition, expected)
 
     transition = buffer.get_transition(1)
-    expected = 1, run.Action(action=0), 2, 0.0, True, {}
+    expected = 1, run.Action(action=0), 2, 0.0, True
     transition_equal(transition, expected)
 
     transition = buffer.get_transition(2)
-    expected = 0, run.Action(action=0), 1, 0.0, True, {}
+    expected = 0, run.Action(action=0), 1, 0.0, True
     transition_equal(transition, expected)
 
 
@@ -98,7 +98,7 @@ def test_load_before_trajectory_terminates():
     runner.observe_step(*step)
     assert buffer.len_transitions() == 1
     assert buffer.len_trajectories() == 0
-    expected_transition = 0, run.Action(action=0), 1, 0.0, False, {}
+    expected_transition = 0, run.Action(action=0), 1, 0.0, False
     transition_equal(buffer.get_transition(0), expected_transition)
 
     """ third step, trajectory ends """
@@ -106,9 +106,9 @@ def test_load_before_trajectory_terminates():
     runner.observe_step(*step)
     assert buffer.len_transitions() == 2
     assert buffer.len_trajectories() == 1
-    expected_transition = 0, run.Action(action=0), 1, 0.0, False, {}
+    expected_transition = 0, run.Action(action=0), 1, 0.0, False
     transition_equal(buffer.get_transition(0), expected_transition)
-    expected_transition = 1, run.Action(action=0), 2, 1.0, True, {}
+    expected_transition = 1, run.Action(action=0), 2, 1.0, True
     transition_equal(buffer.get_transition(1), expected_transition)
 
     """ forth step, 2nd trajectory resets  """
@@ -116,9 +116,9 @@ def test_load_before_trajectory_terminates():
     runner.observe_step(*step)
     assert buffer.len_transitions() == 2
     assert buffer.len_trajectories() == 1
-    expected_transition = 0, run.Action(action=0), 1, 0.0, False, {}
+    expected_transition = 0, run.Action(action=0), 1, 0.0, False
     transition_equal(buffer.get_transition(0), expected_transition)
-    expected_transition = 1, run.Action(action=0), 2, 1.0, True, {}
+    expected_transition = 1, run.Action(action=0), 2, 1.0, True
     transition_equal(buffer.get_transition(1), expected_transition)
 
     """ fifth step, 2nd trajectory ends """
@@ -126,9 +126,9 @@ def test_load_before_trajectory_terminates():
     runner.observe_step(*step)
     assert buffer.len_transitions() == 3
     assert buffer.len_trajectories() == 2
-    expected_transition = 0, run.Action(action=0), 1, 0.0, False, {}
+    expected_transition = 0, run.Action(action=0), 1, 0.0, False
     transition_equal(buffer.get_transition(0), expected_transition)
-    expected_transition = 1, run.Action(action=0), 2, 1.0, True, {}
+    expected_transition = 1, run.Action(action=0), 2, 1.0, True
     transition_equal(buffer.get_transition(1), expected_transition)
-    expected_transition = 3, run.Action(action=0), 4, 1.0, True, {}
+    expected_transition = 3, run.Action(action=0), 4, 1.0, True
     transition_equal(buffer.get_transition(2), expected_transition)

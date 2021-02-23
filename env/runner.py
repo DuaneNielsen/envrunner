@@ -40,41 +40,20 @@ class StateCapture(EnvObserver):
         self.traj = []
 
 
-class TrajectoryBuffer(EnvObserver):
+class ReplayBuffer(EnvObserver):
     def __init__(self):
         """
         Replay buffer
-            a trajectory is a list of tuples [(s, a, r, d, i), ...]
-            terminal state is (s, a, r, True, i)
-
-            wrap this class to replay data
 
         Attributes:
-            trajectories    List of trajectories [(s, a, r, d, i)]
-            transitions     Index of [(trajectory_index, item_in_trajectory), ...],
-                            this index does not include the terminal states,
-                            retrieve S, A, S', R using 1 item lookahead
-            traj            The current live trajectory being added to
+        buffer          [(s, a, r, d, i), ...]
+        trajectories    [(start, end), ...]
+        transitions     a flat index into buffer that points to the head of each transition
+                        ie: to retrieve the n'th transition s, a, s_prime, r, done
+                        transition_index = transitions[n]
+                        s, a, _, _, _ = buffer[transition_index]
+                        s_prime, _, r, done, _ = buffer[transtion_index]
         """
-        self.trajectories = []
-        self.traj = []
-        self.transitions = []
-
-    def reset(self):
-        pass
-
-    def step(self, state, action, reward, done, info, **kwargs):
-        self.traj.append((state, action, reward, done, info))
-        if not done:
-            self.transitions.append((len(self.trajectories), len(self.traj)))
-
-    def done(self):
-        self.trajectories += [self.traj]
-        self.traj = []
-
-
-class ReplayBuffer(EnvObserver):
-    def __init__(self):
         self.buffer = []
         self.trajectories = []
         self.transitions = []
@@ -108,8 +87,8 @@ class ReplayBuffer(EnvObserver):
     def get_transition(self, item):
         i = self.transitions[item]
         s, a, _, _, _ = self.buffer[i]
-        s_p, _, r, d, i = self.buffer[i+1]
-        return s, a, s_p, r, d, i
+        s_p, _, r, d, _ = self.buffer[i+1]
+        return s, a, s_p, r, d
 
     def len_transitions(self):
         _, _, _, done, _ = self.buffer[-1]
