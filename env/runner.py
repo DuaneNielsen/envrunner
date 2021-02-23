@@ -51,8 +51,8 @@ class ReplayBuffer(EnvObserver):
         transitions     a flat index into buffer that points to the head of each transition
                         ie: to retrieve the n'th transition s, a, s_prime, r, done
                         transition_index = transitions[n]
-                        s, a, _, _, _ = buffer[transition_index]
-                        s_prime, _, r, done, _ = buffer[transtion_index]
+                        s, _, _, _, _ = buffer[transition_index]
+                        s_prime, a, r, done, _ = buffer[transtion_index + 1]
         """
         self.buffer = []
         self.trajectories = []
@@ -86,8 +86,8 @@ class ReplayBuffer(EnvObserver):
 
     def get_transition(self, item):
         i = self.transitions[item]
-        s, a, _, _, _ = self.buffer[i]
-        s_p, _, r, d, _ = self.buffer[i+1]
+        s, _, _, _, _ = self.buffer[i]
+        s_p, a, r, d, _ = self.buffer[i+1]
         return s, a, s_p, r, d
 
     def len_transitions(self):
@@ -204,16 +204,6 @@ class RewardFilter(StepFilter):
         return state, action, reward, done, info, kwargs
 
 
-class Action:
-    def __init__(self, action=None, action_dist=None):
-        """ can be a discrete action, or an action_distribution, or both """
-        """ if you want to override rsample, just sample and pass the result in as an action"""
-        if action is None and action_dist is None:
-            raise Exception('Action requires at least an action or an action_dist')
-        self.action_dist = action_dist
-        self.action = action if action is not None else action_dist.rsample()
-
-
 class EnvRunner:
     """
     environment loop with pluggable observers
@@ -260,24 +250,31 @@ class EnvRunner:
             self.env.render()
             time.sleep(delay)
 
-    def episode(self, policy, render=False, delay=0.01, **kwargs):
-        """
+    def reset(self, **kwargs):
+        self.observer_reset()
+        state, reward, done, info = self.env.reset(), 0.0, False, {}
+        self.observe_step(state, None, reward, done, info, **kwargs)
+        return state
 
-        :param policy: takes state as input, and must output a DiscreteAction or ContinuousAction
-        :param render: if True will call environments render function
-        :param delay: rendering delay
-        :param kwargs: kwargs will be passed to policy, environment step, and observers
-        """
-        with torch.no_grad():
-            self.observer_reset()
-            state, reward, done, info = self.env.reset(), 0.0, False, {}
+    def step(self, action, **kwargs):
+        state, reward, done, info = self.env.step(action, **kwargs)
+        self.observe_step(state, action, reward, done, info, **kwargs)
+        return state, reward, done, info
+
+
+def episode(runner, policy, render=False, delay=0.01, **kwargs):
+    """
+
+    :param policy: takes state as input, and must output an Action
+    :param render: if True will call environments render function
+    :param delay: rendering delay
+    :param kwargs: kwargs will be passed to policy, environment step, and observers
+    """
+    with torch.no_grad():
+        state, reward, done, info = runner.reset(**kwargs), 0.0, False, {}
+        action = policy(state, **kwargs)
+        runner.render(render, delay)
+        while not done:
+            state, reward, done, info = runner.step(action, **kwargs)
             action = policy(state, **kwargs)
-            self.observe_step(state, action, reward, done, info, **kwargs)
-            self.render(render, delay)
-            while not done:
-                state, reward, done, info = self.env.step(action.action, **kwargs)
-                action = policy(state)
-                self.observe_step(state, action, reward, done, info, **kwargs)
-                self.render(render, delay)
-
-            self.observer_episode_end()
+            runner.render(render, delay)

@@ -58,16 +58,16 @@ def test_linear_env():
 
     def policy(state):
         dist = torch.distributions.normal.Normal(0, 0.5)
-        return run.Action(action_dist=dist)
+        return dist.rsample()
 
     replay_buffer = run.ReplayBuffer()
     runner.attach_observer("replay_buffer", replay_buffer)
     for i in range(5):
-        runner.episode(policy)
+        run.episode(runner, policy)
     print('')
-    for traj in replay_buffer.trajectories:
-        for state, action, reward, done, info in traj:
-            print(state, action.action, reward, done, info)
+    for start, end in replay_buffer.trajectories:
+        for state, action, reward, done, info in replay_buffer.buffer[start:end]:
+            print(state, action, reward, done, info)
 
 def test_REINFORCE():
 

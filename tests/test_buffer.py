@@ -57,8 +57,8 @@ def test_buffer():
     def policy(state):
         return run.Action(action=0)
 
-    runner.episode(policy)
-    runner.episode(policy)
+    run.episode(runner, policy)
+    run.episode(runner, policy)
 
     print(buffer.trajectories)
     start, end = buffer.trajectories[0]
