@@ -40,6 +40,108 @@ class StateCapture(EnvObserver):
         self.traj = []
 
 
+class TrajectoryBuffer(EnvObserver):
+    def __init__(self):
+        """
+        Replay buffer
+            a trajectory is a list of tuples [(s, a, r, d, i), ...]
+            terminal state is (s, a, r, True, i)
+
+            wrap this class to replay data
+
+        Attributes:
+            trajectories    List of trajectories [(s, a, r, d, i)]
+            transitions     Index of [(trajectory_index, item_in_trajectory), ...],
+                            this index does not include the terminal states,
+                            retrieve S, A, S', R using 1 item lookahead
+            traj            The current live trajectory being added to
+        """
+        self.trajectories = []
+        self.traj = []
+        self.transitions = []
+
+    def reset(self):
+        pass
+
+    def step(self, state, action, reward, done, info, **kwargs):
+        self.traj.append((state, action, reward, done, info))
+        if not done:
+            self.transitions.append((len(self.trajectories), len(self.traj)))
+
+    def done(self):
+        self.trajectories += [self.traj]
+        self.traj = []
+
+
+class ReplayBuffer(EnvObserver):
+    def __init__(self):
+        self.buffer = []
+        self.trajectories = []
+        self.transitions = []
+        self.traj_start = 0
+
+    def reset(self):
+        pass
+
+    def step(self, state, action, reward, done, info, **kwargs):
+
+        self.buffer.append((state, action, reward, done, info))
+
+        if done:
+            """ terminal state, trajectory is complete """
+            self.trajectories.append((self.traj_start, len(self.buffer)))
+            self.traj_start = len(self.buffer)
+        else:
+            """ if not terminal, then by definition, this will be a transition """
+            self.transitions.append(len(self.buffer)-1)
+
+    def done(self):
+        pass
+
+    def get_trajectory(self, item):
+        start, end = self.trajectories[item]
+        return self.buffer[start:end]
+
+    def len_trajectories(self):
+        return len(self.trajectories)
+
+    def get_transition(self, item):
+        i = self.transitions[item]
+        s, a, _, _, _ = self.buffer[i]
+        s_p, _, r, d, i = self.buffer[i+1]
+        return s, a, s_p, r, d, i
+
+    def len_transitions(self):
+        _, _, _, done, _ = self.buffer[-1]
+        """ if the final state is not done, then we are still writing """
+        if not done:
+            """ we cant use the transition at the end yet"""
+            return len(self.transitions) - 1
+        return len(self.transitions)
+
+
+class TransitionDataset:
+    def __init__(self, replay_buffer):
+        self.replay_buffer = replay_buffer
+
+    def __getitem__(self, item):
+        return self.replay_buffer.get_transtion(item)
+
+    def __len__(self):
+        return self.replay_buffer.len_transitions()
+
+
+class TrajectoryDataset:
+    def __init__(self, replay_buffer):
+        self.replay_buffer = replay_buffer
+
+    def __getitem__(self, item):
+        return self.replay_buffer.get_trajectory(item)
+
+    def __len__(self):
+        return self.replay_buffer.len_trajectories()
+
+
 class VideoCapture(EnvObserver):
     def __init__(self, directory):
         self.t = []
@@ -101,10 +203,11 @@ class PngCapture(EnvObserver):
             self.image_id += 1
 
 
-
 class StepFilter:
     """
     Step filters are used to preprocess steps before handing them to observers
+
+    if you want to pre-process environment observations before passing to policy, use a gym.Wrapper
     """
     def __call__(self, state, action, reward, done, info, **kwargs):
         return state, action, reward, done, info, kwargs
@@ -122,8 +225,14 @@ class RewardFilter(StepFilter):
         return state, action, reward, done, info, kwargs
 
 
-def default_action_pipeline(state, policy, **kwargs):
-    return None, None, policy(state)
+class Action:
+    def __init__(self, action=None, action_dist=None):
+        """ can be a discrete action, or an action_distribution, or both """
+        """ if you want to override rsample, just sample and pass the result in as an action"""
+        if action is None and action_dist is None:
+            raise Exception('Action requires at least an action or an action_dist')
+        self.action_dist = action_dist
+        self.action = action if action is not None else action_dist.rsample()
 
 
 class EnvRunner:
@@ -135,17 +244,13 @@ class EnvRunner:
     filters to process the steps are supported, and data enrichment is possible
     by adding to the kwargs dict
     """
-    def __init__(self, env, action_pipeline=None, seed=None, **kwargs):
+    def __init__(self, env, seed=None, **kwargs):
         self.kwargs = kwargs
         self.env = env
         if seed is not None:
             env.seed(seed)
         self.observers = OrderedDict()
         self.step_filters = OrderedDict()
-        if action_pipeline is not None:
-            self.action_pipeline = action_pipeline
-        else:
-            self.action_pipeline = default_action_pipeline
 
     def attach_observer(self, name, observer):
         self.observers[name] = observer
@@ -153,16 +258,17 @@ class EnvRunner:
     def detach_observer(self, name):
         del self.observers[name]
 
-    def append_step_filter(self, name, filter):
-        self.step_filters[name] = filter
-
     def observer_reset(self):
         for name, observer in self.observers.items():
             observer.reset()
 
+    def append_step_filter(self, name, filter):
+        self.step_filters[name] = filter
+
     def observe_step(self, state, action, reward, done, info, **kwargs):
         for name, filter in self.step_filters.items():
             state, action, reward, done, info, kwargs = filter(state, action, reward, done, info, **kwargs)
+
         for name, observer in self.observers.items():
             observer.step(state, action, reward, done, info, **kwargs)
 
@@ -176,16 +282,23 @@ class EnvRunner:
             time.sleep(delay)
 
     def episode(self, policy, render=False, delay=0.01, **kwargs):
+        """
+
+        :param policy: takes state as input, and must output a DiscreteAction or ContinuousAction
+        :param render: if True will call environments render function
+        :param delay: rendering delay
+        :param kwargs: kwargs will be passed to policy, environment step, and observers
+        """
         with torch.no_grad():
             self.observer_reset()
             state, reward, done, info = self.env.reset(), 0.0, False, {}
-            action_dist, sampled_action, action = self.action_pipeline(state, policy, **kwargs)
-            self.observe_step(state, action, reward, done, info, action_dist=action_dist, sampled_action=sampled_action)
+            action = policy(state, **kwargs)
+            self.observe_step(state, action, reward, done, info, **kwargs)
             self.render(render, delay)
             while not done:
-                state, reward, done, info = self.env.step(action)
-                action_dist, sampled_action, action = self.action_pipeline(state, policy, **kwargs)
-                self.observe_step(state, action, reward, done, info, action_dist=action_dist, sampled_action=sampled_action)
+                state, reward, done, info = self.env.step(action.action, **kwargs)
+                action = policy(state)
+                self.observe_step(state, action, reward, done, info, **kwargs)
                 self.render(render, delay)
 
             self.observer_episode_end()
