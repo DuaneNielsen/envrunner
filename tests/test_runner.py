@@ -91,12 +91,48 @@ def test_REINFORCE():
     class PolicyNet(nn.Module):
         def __init__(self):
             super().__init__()
-            self.w = nn.Parameter(torch.zeros(1))
+            self.w = nn.Parameter(torch.tensor([0.1]))
 
         def forward(self, state):
-            state = torch.from_numpy(state)
-            return torch.distributions.Normal(loc=state * self.w, scale=0.25).rsample().item()
+            return torch.distributions.Normal(loc=state * self.w, scale=0.25)
 
-    policy = PolicyNet()
-    run.episode(env, policy)
-    print(buffer.buffer)
+    policy_net = PolicyNet()
+    optim = torch.optim.SGD(policy_net.parameters(), lr=0.1)
+
+    def policy(state):
+        state = torch.from_numpy(state)
+        action = policy_net(state)
+        return action.rsample().item()
+
+    for epoch in range(10):
+        for ep in range(10):
+            run.episode(env, policy)
+
+        """ create dataset using naive value function """
+        discount = 0.99
+        state = []
+        action = []
+        value = []
+        for start, end in buffer.trajectories:
+            v = 0
+            for i in reversed(range(start+1, end)):
+                s, _, _, _, _ = buffer.buffer[i-1]
+                s_prime, a, r, _, _ = buffer.buffer[i]
+                v = r + v * discount
+                state += [s]
+                action += [a]
+                value += [v]
+
+        state, action, value = torch.tensor(state), torch.tensor(action), torch.tensor(value)
+        optim.zero_grad()
+        a_dist = policy_net(state)
+        loss = - torch.mean(torch.exp(a_dist.log_prob(action) + torch.log(value)))
+        loss.backward()
+        optim.step()
+
+        print(policy_net.w)
+
+
+
+
+
