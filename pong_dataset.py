@@ -1,4 +1,4 @@
-from env.runner import EnvRunner, PngCapture
+from env.runner import SubjectWrapper, PngCapture
 from env.wrappers import ClipState2D
 import gym
 from random import randint
@@ -19,7 +19,7 @@ def policy(state):
 if not Path(pongdir).exists():
     env = gym.make('Pong-v0')
     env = ClipState2D(env, 0, 24, 210-24, 160)
-    run = EnvRunner(env)
+    run = SubjectWrapper(env)
     run.attach_observer('image_cap', PngCapture(pongdir + '/screens'))
     run.episode(policy, render=False)
     run.episode(policy, render=False)

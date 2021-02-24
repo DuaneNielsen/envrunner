@@ -4,11 +4,12 @@ import torch
 from collections import OrderedDict
 from torchvision.io import write_video, write_jpeg, write_png
 from pathlib import Path
+import gym
 
 
 class EnvObserver:
-    def reset(self):
-        """ called before environment reset"""
+    def reset(self, state):
+        """ called when environment reset"""
         pass
 
     def step(self, state, action, reward, done, info, **kwargs):
@@ -27,8 +28,10 @@ class StateCapture(EnvObserver):
         self.index = []
         self.cursor = 0
 
-    def reset(self):
-        pass
+    def reset(self, state):
+        self.traj.append(state)
+        self.index.append(self.cursor)
+        self.cursor += 1
 
     def step(self, state, action, reward, done, info, **kwargs):
         self.traj.append(state)
@@ -59,8 +62,16 @@ class ReplayBuffer(EnvObserver):
         self.transitions = []
         self.traj_start = 0
 
-    def reset(self):
-        pass
+    def clear(self):
+        """ clears the buffer """
+        self.buffer = []
+        self.trajectories = []
+        self.transitions = []
+        self.traj_start = 0
+
+    def reset(self, state, **kwargs):
+        self.buffer.append((state, None, 0.0, False, {}))
+        self.transitions.append(len(self.buffer) - 1)
 
     def step(self, state, action, reward, done, info, **kwargs):
 
@@ -127,8 +138,8 @@ class VideoCapture(EnvObserver):
         self.directory = directory
         self.cap_id = 0
 
-    def reset(self):
-        pass
+    def reset(self, state):
+        self.t.append(state)
 
     def step(self, state, action, reward, done, info, **kwargs):
         self.t.append(state)
@@ -147,8 +158,8 @@ class JpegCapture(EnvObserver):
         self.cap_id = 0
         self.image_id = 0
 
-    def reset(self):
-        pass
+    def reset(self, state):
+        self.t.append(state)
 
     def step(self, state, action, reward, done, info, **kwargs):
         self.t.append(state)
@@ -168,8 +179,8 @@ class PngCapture(EnvObserver):
         self.cap_id = 0
         self.image_id = 0
 
-    def reset(self):
-        pass
+    def reset(self, state):
+        self.t.append(state)
 
     def step(self, state, action, reward, done, info, **kwargs):
         self.t.append(state)
@@ -204,9 +215,9 @@ class RewardFilter(StepFilter):
         return state, action, reward, done, info, kwargs
 
 
-class EnvRunner:
+class SubjectWrapper(gym.Wrapper):
     """
-    environment loop with pluggable observers
+    gym wrapper with pluggable observers
 
     to attach an observer implement EnvObserver interface and use attach()
 
@@ -214,6 +225,7 @@ class EnvRunner:
     by adding to the kwargs dict
     """
     def __init__(self, env, seed=None, **kwargs):
+        gym.Wrapper.__init__(self, env)
         self.kwargs = kwargs
         self.env = env
         if seed is not None:
@@ -227,9 +239,9 @@ class EnvRunner:
     def detach_observer(self, name):
         del self.observers[name]
 
-    def observer_reset(self):
+    def observer_reset(self, state):
         for name, observer in self.observers.items():
-            observer.reset()
+            observer.reset(state)
 
     def append_step_filter(self, name, filter):
         self.step_filters[name] = filter
@@ -245,36 +257,38 @@ class EnvRunner:
         for name, observer in self.observers.items():
             observer.done()
 
-    def render(self, render, delay):
-        if render:
-            self.env.render()
-            time.sleep(delay)
-
     def reset(self, **kwargs):
-        self.observer_reset()
-        state, reward, done, info = self.env.reset(), 0.0, False, {}
-        self.observe_step(state, None, reward, done, info, **kwargs)
+        state = self.env.reset()
+        self.observer_reset(state)
         return state
 
     def step(self, action, **kwargs):
         state, reward, done, info = self.env.step(action, **kwargs)
         self.observe_step(state, action, reward, done, info, **kwargs)
+        if done:
+            self.observer_episode_end()
         return state, reward, done, info
 
 
-def episode(runner, policy, render=False, delay=0.01, **kwargs):
+def render_env(env, render, delay):
+    if render:
+        env.render(render)
+        time.sleep(delay)
+
+
+def episode(env, policy, render=False, delay=0.01, **kwargs):
     """
 
-    :param policy: takes state as input, and must output an Action
+    :param policy: takes state as input, must output an action runnable on the environment
     :param render: if True will call environments render function
     :param delay: rendering delay
     :param kwargs: kwargs will be passed to policy, environment step, and observers
     """
     with torch.no_grad():
-        state, reward, done, info = runner.reset(**kwargs), 0.0, False, {}
+        state, reward, done, info = env.reset(**kwargs), 0.0, False, {}
         action = policy(state, **kwargs)
-        runner.render(render, delay)
+        render_env(env, render, delay)
         while not done:
-            state, reward, done, info = runner.step(action, **kwargs)
+            state, reward, done, info = env.step(action, **kwargs)
             action = policy(state, **kwargs)
-            runner.render(render, delay)
+            render_env(env, render, delay)
